@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -169,7 +169,8 @@ public class WorkflowListenerOctaneImpl implements GraphListener {
 				.setDuration(parentRun.getDuration())
 				.setResult(BuildHandlerUtils.translateRunResult(parentRun))
 				.setCauses(CIEventCausesFactory.processCauses(parentRun))
-				.setTestResultExpected(hasTests);
+				.setTestResultExpected(hasTests)
+				.setEnvironmentOutputtedParameters(OutputEnvironmentParametersHelper.getOutputEnvironmentParams(parentRun));
 		CIJenkinsServicesImpl.publishEventToRelevantClients(event);
 	}
 

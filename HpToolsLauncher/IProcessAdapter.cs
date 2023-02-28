@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -26,6 +26,7 @@
  * ___________________________________________________________________
  */
 
+using System;
 using System.Diagnostics;
 
 namespace HpToolsLauncher
@@ -72,6 +73,16 @@ namespace HpToolsLauncher
         public void Start()
         {
             Process.Start();
+
+            if (Process.StartInfo.RedirectStandardError)
+            {
+                Process.BeginErrorReadLine();
+            }
+
+            if (Process.StartInfo.RedirectStandardOutput)
+            {
+                Process.BeginOutputReadLine();
+            }
         }
 
         public void WaitForExit()

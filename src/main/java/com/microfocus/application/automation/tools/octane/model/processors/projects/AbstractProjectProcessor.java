@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -35,6 +35,7 @@ import com.hp.octane.integrations.dto.snapshots.CIBuildStatus;
 import com.hp.octane.integrations.utils.SdkConstants;
 import com.hp.octane.integrations.utils.SdkStringUtils;
 import com.microfocus.application.automation.tools.octane.configuration.SDKBasedLoggerProvider;
+import com.microfocus.application.automation.tools.octane.events.OutputEnvironmentParametersHelper;
 import com.microfocus.application.automation.tools.octane.executor.UftConstants;
 import com.microfocus.application.automation.tools.octane.model.processors.builders.AbstractBuilderProcessor;
 import com.microfocus.application.automation.tools.octane.model.processors.builders.BuildTriggerProcessor;
@@ -209,6 +210,7 @@ public abstract class AbstractProjectProcessor<T extends Job> {
 							} else {
 								status.setBuildStatus(CIBuildStatus.FINISHED);
 								status.setResult(BuildHandlerUtils.translateRunResult(aBuild));
+								status.setEnvironmentOutputtedParameters(OutputEnvironmentParametersHelper.getOutputEnvironmentParams(aBuild));
 							}
 							status.setAllBuildParams(ParameterProcessors.getInstances(aBuild));
 							status.setBuildCiId(BuildHandlerUtils.getBuildCiId(aBuild));

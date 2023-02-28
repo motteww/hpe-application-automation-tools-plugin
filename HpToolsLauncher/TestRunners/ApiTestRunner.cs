@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -27,6 +27,7 @@
  */
 
 using HpToolsLauncher.Properties;
+using HpToolsLauncher.Utils;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -50,19 +51,21 @@ namespace HpToolsLauncher
         private Stopwatch _stopwatch = null;
         private RunCancelledDelegate _runCancelled;
         private string _encoding;
+        private RunAsUser _uftRunAsUser;
 
         /// <summary>
         /// constructor
         /// </summary>
         /// <param name="runner">parent runner</param>
         /// <param name="timeout">the global timout</param>
-        public ApiTestRunner(IAssetRunner runner, TimeSpan timeout, string encoding)
+        public ApiTestRunner(IAssetRunner runner, TimeSpan timeout, string encoding, RunAsUser uftRunAsUser)
         {
             _stopwatch = Stopwatch.StartNew();
             _timeout = timeout;
             _stCanRun = TrySetSTRunner();
             _runner = runner;
             _encoding = encoding;
+            _uftRunAsUser = uftRunAsUser;
         }
 
         /// <summary>
@@ -75,7 +78,7 @@ namespace HpToolsLauncher
             if (File.Exists(STRunnerName))
                 return true;
             _stExecuterPath = Helper.GetSTInstallPath();
-            if ((!String.IsNullOrEmpty(_stExecuterPath)))
+            if (!string.IsNullOrEmpty(_stExecuterPath))
             {
                 _stExecuterPath += "bin";
                 return true;
@@ -83,7 +86,6 @@ namespace HpToolsLauncher
             _stCanRun = false;
             return false;
         }
-
 
         /// <summary>
         /// runs the given test
@@ -105,7 +107,7 @@ namespace HpToolsLauncher
             runDesc.ReportLocation = testinf.TestPath;
 
             // check if the report path has been defined
-            if (!String.IsNullOrEmpty(testinf.ReportPath))
+            if (!string.IsNullOrEmpty(testinf.ReportPath))
             {
                 if (!Helper.TrySetTestReportPath(runDesc, testinf, ref errorReason))
                 {
@@ -174,9 +176,7 @@ namespace HpToolsLauncher
             Stopwatch s = Stopwatch.StartNew();
             runDesc.TestState = TestState.Running;
 
-            if (!ExecuteProcess(fileName,
-                                argumentString,
-                                ref errorReason))
+            if (!ExecuteProcess(fileName, argumentString, ref errorReason))
             {
                 runDesc.TestState = TestState.Error;
                 runDesc.ErrorDesc = errorReason;
@@ -202,6 +202,10 @@ namespace HpToolsLauncher
         {
         }
 
+        public void SafelyCancel()
+        {
+        }
+
         #region Process
 
         /// <summary>
@@ -221,15 +225,13 @@ namespace HpToolsLauncher
                     InitProcess(proc, fileName, arguments, true);
                     RunProcess(proc, true);
 
-                    //it could be that the process already existed
-                    //before we could handle the cancel request
+                    //it could be that the process already exited before we could handle the cancel request
                     if (_runCancelled())
                     {
                         ConsoleWriter.WriteLine(Resources.GeneralTimeoutExpired);
 
                         if (!proc.HasExited)
                         {
-
                             proc.OutputDataReceived -= OnOutputDataReceived;
                             proc.ErrorDataReceived -= OnErrorDataReceived;
                             proc.Kill();
@@ -269,23 +271,28 @@ namespace HpToolsLauncher
         /// <param name="enableRedirection"></param>
         private void InitProcess(Process proc, string fileName, string arguments, bool enableRedirection)
         {
-            var processStartInfo = new ProcessStartInfo
+            var procStartInfo = new ProcessStartInfo
             {
                 FileName = fileName,
                 Arguments = arguments,
                 WorkingDirectory = Directory.GetCurrentDirectory()
             };
+            if (_uftRunAsUser != null)
+            {
+                procStartInfo.UserName = _uftRunAsUser.Username;
+                procStartInfo.Password = _uftRunAsUser.Password;
+            }
 
             Console.WriteLine("{0} {1}", STRunnerName, arguments);
 
             if (!enableRedirection) return;
 
-            processStartInfo.ErrorDialog = false;
-            processStartInfo.UseShellExecute = false;
-            processStartInfo.RedirectStandardOutput = true;
-            processStartInfo.RedirectStandardError = true;
+            procStartInfo.ErrorDialog = false;
+            procStartInfo.UseShellExecute = false;
+            procStartInfo.RedirectStandardOutput = true;
+            procStartInfo.RedirectStandardError = true;
 
-            proc.StartInfo = processStartInfo;
+            proc.StartInfo = procStartInfo;
 
             proc.EnableRaisingEvents = true;
             proc.StartInfo.CreateNoWindow = true;
@@ -329,14 +336,12 @@ namespace HpToolsLauncher
                 if (!p.HasExited || p.ExitCode == 0) return;
             }
             catch { return; }
-            string format = String.Format("{0} {1}: ", DateTime.Now.ToShortDateString(),
-                                          DateTime.Now.ToLongTimeString());
+
             string errorData = e.Data;
 
-            if (String.IsNullOrEmpty(errorData))
+            if (string.IsNullOrEmpty(errorData))
             {
-                errorData = String.Format("External process has exited with code {0}", p.ExitCode);
-
+                errorData = string.Format("External process has exited with code {0}", p.ExitCode);
             }
 
             ConsoleWriter.WriteErrLine(errorData);
@@ -349,7 +354,7 @@ namespace HpToolsLauncher
         /// <param name="e"></param>
         private void OnOutputDataReceived(object sender, DataReceivedEventArgs e)
         {
-            if (!String.IsNullOrEmpty(e.Data))
+            if (!string.IsNullOrEmpty(e.Data))
             {
                 string data = e.Data;
                 ConsoleWriter.WriteLine(data);

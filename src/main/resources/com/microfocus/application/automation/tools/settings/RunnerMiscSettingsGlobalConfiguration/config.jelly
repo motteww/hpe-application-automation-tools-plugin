@@ -8,7 +8,7 @@
   ~ __________________________________________________________________
   ~ MIT License
   ~
-  ~ (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+  ~ (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
   ~
   ~ Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
   ~ documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -34,6 +34,9 @@
         </f:entry>
         <f:entry title="Default branches" field="defaultBranches" >
             <f:textbox name="mf.defaultBranches" value="${instance.defaultBranches}" />
+        </f:entry>
+        <f:entry title="List of output Environment Variables" field="outputEnvironmentParameters" >
+            <f:textarea name="mf.outputEnvironmentParameters" value="${instance.outputEnvironmentParameters}" default="${instance.DEFAULT_OUTPUT_ENVIRONMENT_PARAMETERS}" />
         </f:entry>
         <f:entry title="Enable Agent to Controller access" description="If checked, when you execute a build on an agent, the agent will access the controller to write results that will be reported to ALM Octane.">
             <f:checkbox name="agentToControllerEnabled" checked="${instance.agentToControllerEnabled}"/>

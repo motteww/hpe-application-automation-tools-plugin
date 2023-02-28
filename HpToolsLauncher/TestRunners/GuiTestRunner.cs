@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -27,6 +27,7 @@
  */
 
 using HpToolsLauncher.TestRunners;
+using HpToolsLauncher.Utils;
 using Microsoft.Win32;
 using QTObjectModelLib;
 using System;
@@ -34,6 +35,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Resources = HpToolsLauncher.Properties.Resources;
 
@@ -65,7 +67,9 @@ namespace HpToolsLauncher
         private const string RUNNING = "Running";
         private const string PASSED = "Passed";
         private const string WARNING = "Warning";
+        private const int DISP_E_MEMBERNOTFOUND = -2147352573;
 
+        private readonly Type _qtType = Type.GetTypeFromProgID("Quicktest.Application");
         private readonly IAssetRunner _runNotifier;
         private readonly object _lockObject = new object();
         private TimeSpan _timeLeftUntilTimeout = TimeSpan.MaxValue;
@@ -79,6 +83,8 @@ namespace HpToolsLauncher
         private McConnectionInfo _mcConnection;
         private string _mobileInfo;
         private bool _printInputParams;
+        private bool _isCancelledByUser;
+        private RunAsUser _uftRunAsUser;
 
         /// <summary>
         /// constructor
@@ -86,7 +92,7 @@ namespace HpToolsLauncher
         /// <param name="runNotifier"></param>
         /// <param name="useUftLicense"></param>
         /// <param name="timeLeftUntilTimeout"></param>
-        public GuiTestRunner(IAssetRunner runNotifier, bool useUftLicense, TimeSpan timeLeftUntilTimeout, string uftRunMode, McConnectionInfo mcConnectionInfo, string mobileInfo, bool printInputParams)
+        public GuiTestRunner(IAssetRunner runNotifier, bool useUftLicense, TimeSpan timeLeftUntilTimeout, string uftRunMode, McConnectionInfo mcConnectionInfo, string mobileInfo, bool printInputParams, RunAsUser uftRunAsUser)
         {
             _timeLeftUntilTimeout = timeLeftUntilTimeout;
             _uftRunMode = uftRunMode;
@@ -96,6 +102,7 @@ namespace HpToolsLauncher
             _mcConnection = mcConnectionInfo;
             _mobileInfo = mobileInfo;
             _printInputParams = printInputParams;
+            _uftRunAsUser = uftRunAsUser;
         }
 
         #region QTP
@@ -120,7 +127,7 @@ namespace HpToolsLauncher
             // default report location is the test path
             runDesc.ReportLocation = testPath;
             // check if the report path has been defined
-            if (!String.IsNullOrEmpty(testinf.ReportPath))
+            if (!string.IsNullOrEmpty(testinf.ReportPath))
             {
                 if (!Helper.TrySetTestReportPath(runDesc, testinf, ref errorReason))
                 {
@@ -153,124 +160,46 @@ namespace HpToolsLauncher
 
             try
             {
-                ChangeDCOMSettingToInteractiveUser();
-                var type = Type.GetTypeFromProgID("Quicktest.Application");
-
                 lock (_lockObject)
                 {
-                    _qtpApplication = Activator.CreateInstance(type) as Application;
+                    _qtpApplication = Activator.CreateInstance(_qtType) as Application;
+                    if (_uftRunAsUser != null)
+                    {
+                        try
+                        {
+                            _qtpApplication.LaunchAsUser(_uftRunAsUser.Username, _uftRunAsUser.EncodedPassword);
+                        }
+                        catch (COMException e)
+                        {
+                            if (e.ErrorCode == DISP_E_MEMBERNOTFOUND)
+                            {
+                                errorReason = Resources.UftLaunchAsUserNotSupported;
+                            }
+                            throw;
+                        }
+                        if (_qtpApplication.Visible)
+                        {
+                            _qtpApplication.Visible = false;
+                        }
+                    }
 
                     Version qtpVersion = Version.Parse(_qtpApplication.Version);
                     if (qtpVersion.Equals(new Version(11, 0)))
                     {
-                        // use the defined report path if provided
-                        if (!String.IsNullOrEmpty(testinf.ReportPath))
-                        {
-                            runDesc.ReportLocation = Path.Combine(testinf.ReportPath, REPORT);
-                        }
-                        else
-                        {
-                            runDesc.ReportLocation = Path.Combine(testPath, REPORT);
-                        }
-
-                        if (Directory.Exists(runDesc.ReportLocation))
-                        {
-                            int lastIndex = runDesc.ReportLocation.IndexOf("\\");
-                            var location = runDesc.ReportLocation.Substring(0, lastIndex);
-                            var name = runDesc.ReportLocation.Substring(lastIndex + 1);
-                            runDesc.ReportLocation = Helper.GetNextResFolder(location, name);
-                            Directory.CreateDirectory(runDesc.ReportLocation);
-                        }
+                        runDesc.ReportLocation = GetReportLocation(testinf, testPath);
                     }
-
-
                     // Check for required Addins
                     LoadNeededAddins(testPath);
 
                     // set Mc connection and other mobile info into rack if neccesary
-                    #region Mc connection and other mobile info
-
-                    // Mc Address, username and password
-                    if (!string.IsNullOrEmpty(_mcConnection.MobileHostAddress))
-                    {
-                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_HOST_ADDRESS, _mcConnection.MobileHostAddress);
-                        if (!string.IsNullOrEmpty(_mcConnection.MobileHostPort))
-                        {
-                            _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_HOST_PORT, _mcConnection.MobileHostPort);
-                        }
-                    }
-
-                    var mcAuthType = _mcConnection.MobileAuthType;
-                    switch (mcAuthType)
-                    {
-                        case McConnectionInfo.AuthType.AuthToken:
-                            var token = _mcConnection.GetAuthToken();
-
-                            _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_CLIENTID, token.ClientId);
-                            _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_SECRET, token.SecretKey);
-
-                            break;
-                        case McConnectionInfo.AuthType.UsernamePassword:
-                            if (!string.IsNullOrEmpty(_mcConnection.MobileUserName))
-                            {
-                                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_USER, _mcConnection.MobileUserName);
-                            }
-
-                            if (!string.IsNullOrEmpty(_mcConnection.MobilePassword))
-                            {
-                                string encriptedMcPassword = WinUserNativeMethods.ProtectBSTRToBase64(_mcConnection.MobilePassword);
-                                if (encriptedMcPassword == null)
-                                {
-                                    ConsoleWriter.WriteLine("ProtectBSTRToBase64 fail for mcPassword");
-                                    throw new Exception("ProtectBSTRToBase64 fail for mcPassword");
-                                }
-                                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PASSWORD, encriptedMcPassword);
-                            }
-                            break;
-                    }
-
-                    // set authentication type
-                    _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_AUTH_TYPE, mcAuthType);
-
-                    // set tenantID
-                    if (!string.IsNullOrEmpty(_mcConnection.MobileTenantId))
-                    {
-                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_TENANT, _mcConnection.MobileTenantId);
-                    }
-
-                    // ssl and proxy info
-                    _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_USE_SSL, _mcConnection.MobileUseSSL);
-
-                    if (_mcConnection.MobileUseProxy == 1)
-                    {
-                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_USE_PROXY, _mcConnection.MobileUseProxy);
-                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PROXY_SETTING_ADDRESS, _mcConnection.MobileProxySetting_Address);
-                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PROXY_SETTING_PORT, _mcConnection.MobileProxySetting_Port);
-                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PROXY_SETTING_AUTHENTICATION, _mcConnection.MobileProxySetting_Authentication);
-                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PROXY_SETTING_USERNAME, _mcConnection.MobileProxySetting_UserName);
-                        string encriptedMcProxyPassword = WinUserNativeMethods.ProtectBSTRToBase64(_mcConnection.MobileProxySetting_Password);
-                        if (encriptedMcProxyPassword == null)
-                        {
-                            ConsoleWriter.WriteLine("ProtectBSTRToBase64 fail for mc proxy Password");
-                            throw new Exception("ProtectBSTRToBase64 fail for mc proxy Password");
-                        }
-                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PROXY_SETTING_PASSWORD, encriptedMcProxyPassword);
-                    }
-
-                    // Mc info (device, app, launch and terminate data)
-                    if (!string.IsNullOrEmpty(_mobileInfo))
-                    {
-                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_INFO, _mobileInfo);
-                    }
-
-                    #endregion
+                    SetMobileInfo();
 
                     if (!_qtpApplication.Launched)
                     {
                         if (_runCancelled())
                         {
                             QTPTestCleanup();
-                            KillQtp();
+                            CleanUpAndKillQtp();
                             runDesc.TestState = TestState.Error;
                             return runDesc;
                         }
@@ -282,10 +211,19 @@ namespace HpToolsLauncher
             }
             catch (Exception e)
             {
-                errorReason = Resources.QtpNotLaunchedError;
+                if (string.IsNullOrEmpty(errorReason))
+                {
+                    errorReason = Resources.QtpNotLaunchedError;
+                    runDesc.ErrorDesc = e.Message;
+                    ConsoleWriter.WriteErrLine(e.Message);
+                }
+                else
+                {
+                    runDesc.ErrorDesc = errorReason;
+                    ConsoleWriter.WriteErrLine(errorReason);
+                }
                 runDesc.TestState = TestState.Error;
                 runDesc.ReportLocation = string.Empty;
-                runDesc.ErrorDesc = e.Message;
                 return runDesc;
             }
 
@@ -304,7 +242,8 @@ namespace HpToolsLauncher
             try
             {
                 paramDict = testinf.GetParameterDictionaryForQTP();
-            } catch (ArgumentException)
+            }
+            catch (ArgumentException)
             {
                 ConsoleWriter.WriteErrLine(string.Format(Resources.FsDuplicateParamNames));
                 throw;
@@ -333,8 +272,107 @@ namespace HpToolsLauncher
             }
 
             QTPTestCleanup();
+            _qtpApplication = null;
 
             return runDesc;
+        }
+
+        private string GetReportLocation(TestInfo testinf, string testPath)
+        {
+            // use the defined report path if provided
+            string rptLocation = string.IsNullOrEmpty(testinf.ReportPath) ? 
+                            Path.Combine(testPath, REPORT) :
+                            Path.Combine(testinf.ReportPath, REPORT);
+
+            if (Directory.Exists(rptLocation))
+            {
+                int lastIndex = rptLocation.IndexOf("\\");
+                var location = rptLocation.Substring(0, lastIndex);
+                var name = rptLocation.Substring(lastIndex + 1);
+                rptLocation = Helper.GetNextResFolder(location, name);
+                Directory.CreateDirectory(rptLocation);
+            }
+            return rptLocation;
+        }
+
+        private void SetMobileInfo()
+        {
+            #region Mc connection and other mobile info
+
+            // Mc Address, username and password
+            if (!string.IsNullOrEmpty(_mcConnection.MobileHostAddress))
+            {
+                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_HOST_ADDRESS, _mcConnection.MobileHostAddress);
+                if (!string.IsNullOrEmpty(_mcConnection.MobileHostPort))
+                {
+                    _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_HOST_PORT, _mcConnection.MobileHostPort);
+                }
+            }
+
+            var mcAuthType = _mcConnection.MobileAuthType;
+            switch (mcAuthType)
+            {
+                case McConnectionInfo.AuthType.AuthToken:
+                    var token = _mcConnection.GetAuthToken();
+
+                    _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_CLIENTID, token.ClientId);
+                    _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_SECRET, token.SecretKey);
+
+                    break;
+                case McConnectionInfo.AuthType.UsernamePassword:
+                    if (!string.IsNullOrEmpty(_mcConnection.MobileUserName))
+                    {
+                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_USER, _mcConnection.MobileUserName);
+                    }
+
+                    if (!string.IsNullOrEmpty(_mcConnection.MobilePassword))
+                    {
+                        string encriptedMcPassword = WinUserNativeMethods.ProtectBSTRToBase64(_mcConnection.MobilePassword);
+                        if (encriptedMcPassword == null)
+                        {
+                            ConsoleWriter.WriteLine("ProtectBSTRToBase64 fail for mcPassword");
+                            throw new Exception("ProtectBSTRToBase64 fail for mcPassword");
+                        }
+                        _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PASSWORD, encriptedMcPassword);
+                    }
+                    break;
+            }
+
+            // set authentication type
+            _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_AUTH_TYPE, mcAuthType);
+
+            // set tenantID
+            if (!string.IsNullOrEmpty(_mcConnection.MobileTenantId))
+            {
+                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_TENANT, _mcConnection.MobileTenantId);
+            }
+
+            // ssl and proxy info
+            _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_USE_SSL, _mcConnection.MobileUseSSL);
+
+            if (_mcConnection.MobileUseProxy == 1)
+            {
+                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_USE_PROXY, _mcConnection.MobileUseProxy);
+                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PROXY_SETTING_ADDRESS, _mcConnection.MobileProxySetting_Address);
+                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PROXY_SETTING_PORT, _mcConnection.MobileProxySetting_Port);
+                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PROXY_SETTING_AUTHENTICATION, _mcConnection.MobileProxySetting_Authentication);
+                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PROXY_SETTING_USERNAME, _mcConnection.MobileProxySetting_UserName);
+                string encriptedMcProxyPassword = WinUserNativeMethods.ProtectBSTRToBase64(_mcConnection.MobileProxySetting_Password);
+                if (encriptedMcProxyPassword == null)
+                {
+                    ConsoleWriter.WriteLine("ProtectBSTRToBase64 fail for mc proxy Password");
+                    throw new Exception("ProtectBSTRToBase64 fail for mc proxy Password");
+                }
+                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_PROXY_SETTING_PASSWORD, encriptedMcProxyPassword);
+            }
+
+            // Mc info (device, app, launch and terminate data)
+            if (!string.IsNullOrEmpty(_mobileInfo))
+            {
+                _qtpApplication.TDPierToTulip.SetTestOptionsVal(MOBILE_INFO, _mobileInfo);
+            }
+
+            #endregion
         }
 
         /// <summary>
@@ -344,21 +382,30 @@ namespace HpToolsLauncher
         {
             try
             {
-                //if we don't have a qtp instance, create one
-                if (_qtpApplication == null)
+                lock (_lockObject)
                 {
-                    var type = Type.GetTypeFromProgID("Quicktest.Application");
-                    _qtpApplication = Activator.CreateInstance(type) as Application;
-                }
+                    //if we don't have a qtp instance, create one
+                    if (_qtpApplication == null)
+                    {
+                        _qtpApplication = Activator.CreateInstance(_qtType) as Application;
+                    }
 
-                //if the app is running, close it.
-                if (_qtpApplication.Launched)
                     _qtpApplication.Quit();
+                }
             }
             catch
             {
                 //nothing to do. (cleanup code should not throw exceptions, and there is no need to log this as an error in the test)
             }
+        }
+
+        public void SafelyCancel()
+        {
+            _isCancelledByUser = true;
+            ConsoleWriter.WriteLine(Resources.GeneralStopAborted);
+            QTPTestCleanup();
+            CleanUpAndKillQtp();
+            ConsoleWriter.WriteLine(Resources.GeneralAbortedByUser);
         }
 
         static HashSet<string> _colLoadedAddinNames = null;
@@ -415,11 +462,10 @@ namespace HpToolsLauncher
                 //the addins need to be refreshed, load new addins
                 if (blnNeedToLoadAddins)
                 {
-                    if (_qtpApplication.Launched)
+                    if (_qtpApplication.Launched && _uftRunAsUser == null)
                         _qtpApplication.Quit();
                     _qtpApplication.SetActiveAddins(ref testAddinsObj, out erroDescription);
                 }
-
             }
             catch (Exception)
             {
@@ -483,7 +529,7 @@ namespace HpToolsLauncher
                 if (_runCancelled())
                 {
                     QTPTestCleanup();
-                    KillQtp();
+                    CleanUpAndKillQtp();
                     testResults.TestState = TestState.Error;
                     testResults.ErrorDesc = Resources.GeneralTestCanceled;
                     ConsoleWriter.WriteLine(Resources.GeneralTestCanceled);
@@ -509,7 +555,7 @@ namespace HpToolsLauncher
                     if (_timeLeftUntilTimeout - _stopwatch.Elapsed <= TimeSpan.Zero)
                     {
                         QTPTestCleanup();
-                        KillQtp();
+                        CleanUpAndKillQtp();
                         testResults.TestState = TestState.Error;
                         testResults.ErrorDesc = Resources.GeneralTimeoutExpired;
                         ConsoleWriter.WriteLine(Resources.GeneralTimeoutExpired);
@@ -522,7 +568,7 @@ namespace HpToolsLauncher
                 if (_runCancelled())
                 {
                     QTPTestCleanup();
-                    KillQtp();
+                    CleanUpAndKillQtp();
                     testResults.TestState = TestState.Error;
                     testResults.ErrorDesc = Resources.GeneralTestCanceled;
                     ConsoleWriter.WriteLine(Resources.GeneralTestCanceled);
@@ -571,7 +617,7 @@ namespace HpToolsLauncher
             }
             catch (SystemException e)
             {
-                KillQtp();
+                CleanUpAndKillQtp();
                 ConsoleWriter.WriteLine(string.Format(Resources.GeneralErrorWithStack, e.Message, e.StackTrace));
                 testResults.TestState = TestState.Error;
                 testResults.ErrorDesc = Resources.QtpRunError;
@@ -581,20 +627,26 @@ namespace HpToolsLauncher
             }
             catch (Exception e2)
             {
-
-                ConsoleWriter.WriteLine(string.Format(Resources.GeneralErrorWithStack, e2.Message, e2.StackTrace));
-                testResults.TestState = TestState.Error;
-                testResults.ErrorDesc = Resources.QtpRunError;
+                if (_isCancelledByUser)
+                {
+                    testResults.TestState = TestState.Error;
+                    testResults.ErrorDesc = Resources.GeneralStopAborted;
+                }
+                else
+                {
+                    ConsoleWriter.WriteLine(string.Format(Resources.GeneralErrorWithStack, e2.Message, e2.StackTrace));
+                    testResults.TestState = TestState.Error;
+                    testResults.ErrorDesc = Resources.QtpRunError;
+                }
 
                 result.IsSuccess = false;
                 return result;
             }
 
-
             return result;
         }
 
-        private void KillQtp()
+        private void CleanUpAndKillQtp()
         {
             //error during run, process may have crashed (need to cleanup, close QTP and qtpRemote for next test to run correctly)
             CleanUp();
@@ -603,9 +655,9 @@ namespace HpToolsLauncher
             Process[] processes = Process.GetProcessesByName("qtpAutomationAgent");
             Process qtpAuto = processes.Where(p => p.SessionId == Process.GetCurrentProcess().SessionId).FirstOrDefault();
             if (qtpAuto != null)
-		    {
+            {
                 qtpAuto.Kill();
-		    }
+            }
         }
 
         private bool HandleOutputArguments(ref string errorReason, out Dictionary<string, string> outParams)
@@ -681,7 +733,7 @@ namespace HpToolsLauncher
                 if (_runCancelled())
                 {
                     QTPTestCleanup();
-                    KillQtp();
+                    CleanUpAndKillQtp();
                     return false;
                 }
 
@@ -727,7 +779,8 @@ namespace HpToolsLauncher
                                     else
                                         ConsoleWriter.WriteLine(string.Format(Resources.GeneralParameterUsage, paramName, type != qtParameterType.qtParamTypeDate ? paramValue : ((DateTime)paramValue).ToShortDateString()));
                                 }
-                            } catch (Exception)
+                            }
+                            catch (Exception)
                             {
                                 ConsoleWriter.WriteErrLine(string.Format(Resources.GeneralParameterTypeMismatchWith1Type, paramName));
                             }
@@ -750,14 +803,14 @@ namespace HpToolsLauncher
                         IterationInfo ii = testInfo.IterationInfo;
                         if (!IterationInfo.AvailableTypes.Contains(ii.IterationMode))
                         {
-                            throw new ArgumentException(String.Format("Illegal iteration mode '{0}'. Available modes are : {1}", ii.IterationMode, string.Join(", ", IterationInfo.AvailableTypes)));
+                            throw new ArgumentException(string.Format("Illegal iteration mode '{0}'. Available modes are : {1}", ii.IterationMode, string.Join(", ", IterationInfo.AvailableTypes)));
                         }
 
                         bool rangeMode = IterationInfo.RANGE_ITERATION_MODE.Equals(ii.IterationMode);
                         if (rangeMode)
                         {
-                            int start = Int32.Parse(ii.StartIteration);
-                            int end = Int32.Parse(ii.EndIteration);
+                            int start = int.Parse(ii.StartIteration);
+                            int end = int.Parse(ii.EndIteration);
 
                             _qtpApplication.Test.Settings.Run.StartIteration = start;
                             _qtpApplication.Test.Settings.Run.EndIteration = end;
@@ -766,11 +819,11 @@ namespace HpToolsLauncher
                         _qtpApplication.Test.Settings.Run.IterationMode = testInfo.IterationInfo.IterationMode;
 
                         ConsoleWriter.WriteLine("Using iteration mode: " + testInfo.IterationInfo.IterationMode +
-                       (rangeMode ? " " + testInfo.IterationInfo.StartIteration + "-" + testInfo.IterationInfo.EndIteration : ""));
+                       (rangeMode ? " " + testInfo.IterationInfo.StartIteration + "-" + testInfo.IterationInfo.EndIteration : string.Empty));
                     }
                     catch (Exception e)
                     {
-                        String msg = "Failed to parse 'Iterations' element . Using default iteration settings. Error : " + e.Message;
+                        string msg = "Failed to parse 'Iterations' element . Using default iteration settings. Error : " + e.Message;
                         ConsoleWriter.WriteLine(msg);
                     }
                 }
@@ -781,7 +834,6 @@ namespace HpToolsLauncher
                 return false;
             }
             return true;
-
         }
 
         /// <summary>
@@ -807,7 +859,7 @@ namespace HpToolsLauncher
                             _qtpApplication.Test.Close();
                         }
                         catch (Exception)
-                        {}
+                        { }
                     }
                 }
             }
@@ -817,48 +869,6 @@ namespace HpToolsLauncher
 
             _qtpParameters = null;
             _qtpParamDefs = null;
-            _qtpApplication = null;
-        }
-
-
-        /// <summary>
-        /// Why we need this? If we run jenkins in a master slave node where there is a jenkins service installed in the slave machine, we need to change the DCOM settings as follow:
-        /// dcomcnfg.exe -> My Computer -> DCOM Config -> QuickTest Professional Automation -> Identity -> and select The Interactive User
-        /// </summary>
-        private void ChangeDCOMSettingToInteractiveUser()
-        {
-            string errorMsg = "Unable to change DCOM settings. To change it manually: " +
-                              "run dcomcnfg.exe -> My Computer -> DCOM Config -> QuickTest Professional Automation -> Identity -> and select The Interactive User. ";
-
-            string interactiveUser = "Interactive User";
-            string runAs = "RunAs";
-
-            try
-            {
-                var regKey = GetQuickTestProfessionalAutomationRegKey(RegistryView.Registry32);
-
-                if (regKey == null)
-                {
-                    regKey = GetQuickTestProfessionalAutomationRegKey(RegistryView.Registry64);
-                }
-
-                if (regKey == null)
-                    throw new Exception(@"Unable to find in registry SOFTWARE\Classes\AppID\{A67EB23A-1B8F-487D-8E38-A6A3DD150F0B");
-
-                object runAsKey = regKey.GetValue(runAs);
-
-                if (runAsKey == null || !runAsKey.ToString().Equals(interactiveUser))
-                {
-                    regKey.SetValue(runAs, interactiveUser);
-                }
-
-            }
-            catch (Exception ex)
-            {
-                throw new Exception(errorMsg + "detailed error is : " + ex.Message);
-            }
-
-
         }
 
         private RegistryKey GetQuickTestProfessionalAutomationRegKey(RegistryView registryView)
@@ -869,9 +879,7 @@ namespace HpToolsLauncher
             return localKey;
         }
 
-
         #endregion
-
 
         /// <summary>
         /// holds the resutls for a GUI test
@@ -880,7 +888,7 @@ namespace HpToolsLauncher
         {
             public GuiTestRunResult()
             {
-                ReportPath = "";
+                ReportPath = string.Empty;
             }
 
             public bool IsSuccess { get; set; }

@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -58,7 +58,5 @@ public class UftConstants {
     public static final String NO_CLIENT_ID_DEFINED = "No client ID defined in Jenkins Configure System page";
 
     public static final String UFT_CHECKOUT_FOLDER = "UFT_CHECKOUT_FOLDER";
-    public static final String UFT_PRINT_TEST_PARAMS = "UFT_PRINT_TEST_PARAMS";
-
     public static final String CODELESS_FOLDER_TEMPLATE = "codeless_%s";
 }

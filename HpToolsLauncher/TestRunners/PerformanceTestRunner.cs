@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -29,6 +29,7 @@
 using HP.LoadRunner.Interop.Wlrun;
 using HpToolsLauncher.Properties;
 using HpToolsLauncher.RTS;
+using HpToolsLauncher.Utils;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -224,7 +225,6 @@ namespace HpToolsLauncher.TestRunners
                     generateAnalysisReport(runDesc);
                     ConsoleWriter.WriteLine("analysis report generator finished");
 
-
                     //check for errors:
                     if (File.Exists(Path.Combine(_resultsFolder, "errors.xml")))
                     {
@@ -265,7 +265,6 @@ namespace HpToolsLauncher.TestRunners
                         Console.WriteLine(Resources.LRTestPassed);
                         runDesc.TestState = TestState.Passed;
                     }
-
                 }
                 catch (Exception e)
                 {
@@ -276,7 +275,6 @@ namespace HpToolsLauncher.TestRunners
                 }
 
                 //runDesc.ReportLocation = _resultsFolder;
-
             }
 
             runDesc.Runtime = scenarioStopWatch.Elapsed;
@@ -567,7 +565,6 @@ namespace HpToolsLauncher.TestRunners
             }
         }
 
-
         private void collateResults()
         {
             int ret = _engine.Scenario.CollateResults();
@@ -582,7 +579,6 @@ namespace HpToolsLauncher.TestRunners
                 Stopper collateStopper = new Stopper(_pollingInterval * 1000);
                 collateStopper.Start();
             }
-
         }
 
         private void closeController()
@@ -694,7 +690,6 @@ namespace HpToolsLauncher.TestRunners
         }
 
         AutoResetEvent autoEvent = new AutoResetEvent(false);
-
 
         private bool waitForScenario(ref string errorReason)
         {
@@ -826,29 +821,21 @@ namespace HpToolsLauncher.TestRunners
 
             }
             ConsoleWriter.WriteErrLine("total number of errors: " + _errorsCount);
-
-
-
         }
-
 
         private int getErrorsCount(ERRORState state)
         {
             return (_errors != null) ? (from x in _errors where x.Value.state == state select x.Value.occurences).Sum() : 0;
         }
 
-
-
         private void updateError(string message)
         {
-
             ControllerError s = _errors[message];
             if (s != null)
             {
                 s.occurences++;
                 _errors[message] = s;
             }
-
         }
 
         private void ScenarioEvents_OnScenarioEnded()
@@ -857,7 +844,6 @@ namespace HpToolsLauncher.TestRunners
             _scenarioEnded = true;
 
         }
-
 
         private bool isFinished()
         {
@@ -977,8 +963,6 @@ namespace HpToolsLauncher.TestRunners
                     p.Kill();
                     Stopper stopper = new Stopper(500);
                     stopper.Start();
-
-
                 }
 
                 // check if any wlrun.exe process existed, kill them.
@@ -1033,6 +1017,9 @@ namespace HpToolsLauncher.TestRunners
             //ConsoleWriter.WriteLine("Closing controller");
             closeController();
             cleanENV();
+        }
+        public void SafelyCancel()
+        {
         }
     }
 }

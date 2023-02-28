@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -39,6 +39,7 @@ import com.microfocus.application.automation.tools.mc.JobConfigurationProxy;
 import com.microfocus.application.automation.tools.model.*;
 import com.microfocus.application.automation.tools.settings.MCServerSettingsGlobalConfiguration;
 import com.microfocus.application.automation.tools.uft.model.SpecifyParametersModel;
+import com.microfocus.application.automation.tools.uft.model.UftRunAsUser;
 import com.microfocus.application.automation.tools.uft.model.UftSettingsModel;
 import com.microfocus.application.automation.tools.uft.utils.UftToolUtils;
 import hudson.*;
@@ -77,6 +78,7 @@ public class RunFromFileBuilder extends Builder implements SimpleBuildStep {
     private static final String LRANALYSIS_LAUNCHER_EXE = "LRAnalysisLauncher.exe";
 
     public static final String HP_TOOLS_LAUNCHER_EXE = "HpToolsLauncher.exe";
+    public static final String HP_TOOLS_LAUNCHER_EXE_CFG = "HpToolsLauncher.exe.config";
 
     private String ResultFilename = "ApiResults.xml";
 
@@ -675,21 +677,21 @@ public class RunFromFileBuilder extends Builder implements SimpleBuildStep {
             mergedProperties.setProperty("MobileHostAddress", mcServerUrl);
         }
 
-        // check whether Mobile authentification info is given or not
-        String pwd = runFromFileModel.getMcPassword();
-        String tok = runFromFileModel.getMcExecToken();
-        if (pwd != null && StringUtils.isNotBlank(Secret.fromString(pwd).getPlainText())) {
+        // check whether Mobile authentication info is given or not
+        String plainTextPwd = runFromFileModel.getMcPassword() == null ? null : Secret.fromString(runFromFileModel.getMcPassword()).getPlainText();
+        String plainTextToken = runFromFileModel.getMcExecToken() == null ? null : Secret.fromString(runFromFileModel.getMcExecToken()).getPlainText();
+        if (StringUtils.isNotBlank(plainTextPwd)) {
             try {
-                String encPassword = EncryptionUtils.encrypt(Secret.fromString(pwd).getPlainText(), currNode);
+                String encPassword = EncryptionUtils.encrypt(plainTextPwd, currNode);
                 mergedProperties.put("MobilePassword", encPassword);
             } catch (Exception e) {
                 build.setResult(Result.FAILURE);
                 listener.fatalError("Problem in UFT Digital Lab password encryption: " + e.getMessage() + ".");
                 return;
             }
-        } else if (tok != null && StringUtils.isNotBlank(Secret.fromString(tok).getPlainText())) {
+        } else if (StringUtils.isNotBlank(plainTextToken)) {
             try {
-                String encToken = EncryptionUtils.encrypt(Secret.fromString(tok).getPlainText(), currNode);
+                String encToken = EncryptionUtils.encrypt(plainTextToken, currNode);
                 mergedProperties.put("MobileExecToken", encToken);
             } catch (Exception e) {
                 build.setResult(Result.FAILURE);
@@ -719,6 +721,22 @@ public class RunFromFileBuilder extends Builder implements SimpleBuildStep {
         boolean isPrintTestParams = UftToolUtils.isPrintTestParams(build, listener);
         mergedProperties.put("printTestParams", isPrintTestParams ? "1" : "0");
 
+        UftRunAsUser uftRunAsUser;
+        try {
+            uftRunAsUser = UftToolUtils.getRunAsUser(build, listener);
+            if (uftRunAsUser != null) {
+                mergedProperties.put("uftRunAsUserName", uftRunAsUser.getUsername());
+                if (StringUtils.isNotBlank(uftRunAsUser.getEncodedPassword())) {
+                    mergedProperties.put("uftRunAsUserEncodedPassword", uftRunAsUser.getEncodedPasswordAsEncrypted(currNode));
+                } else if (uftRunAsUser.getPassword() != null) {
+                    mergedProperties.put("uftRunAsUserPassword", uftRunAsUser.getPasswordAsEncrypted(currNode));
+                }
+            }
+        } catch(IllegalArgumentException | EncryptionUtils.EncryptionException e) {
+            build.setResult(Result.FAILURE);
+            listener.fatalError(String.format("Build parameters check failed: %s.", e.getMessage()));
+            return;
+        }
         int idx = 0;
         for (Iterator<String> iterator = env.keySet().iterator(); iterator.hasNext(); ) {
             String key = iterator.next();
@@ -846,6 +864,13 @@ public class RunFromFileBuilder extends Builder implements SimpleBuildStep {
             }
 
             @SuppressWarnings("squid:S2259")
+            URL cmdExeCfgUrl = Jenkins.get().pluginManager.uberClassLoader.getResource(HP_TOOLS_LAUNCHER_EXE_CFG);
+            if (cmdExeCfgUrl == null) {
+                listener.fatalError(HP_TOOLS_LAUNCHER_EXE_CFG + " not found in resources");
+                return;
+            }
+
+            @SuppressWarnings("squid:S2259")
             URL cmdExe2Url = Jenkins.get().pluginManager.uberClassLoader.getResource(LRANALYSIS_LAUNCHER_EXE);
             if (cmdExe2Url == null) {
                 listener.fatalError(LRANALYSIS_LAUNCHER_EXE + "not found in resources");
@@ -854,6 +879,7 @@ public class RunFromFileBuilder extends Builder implements SimpleBuildStep {
 
             FilePath propsFileName = workspace.child(ParamFileName);
             CmdLineExe = workspace.child(HP_TOOLS_LAUNCHER_EXE);
+            FilePath CmdLineExeCfg = workspace.child(HP_TOOLS_LAUNCHER_EXE_CFG);
             FilePath CmdLineExe2 = workspace.child(LRANALYSIS_LAUNCHER_EXE);
 
             try {
@@ -861,6 +887,7 @@ public class RunFromFileBuilder extends Builder implements SimpleBuildStep {
                 propsFileName.copyFrom(propsStream);
                 // Copy the script to the project workspace
                 CmdLineExe.copyFrom(cmdExeUrl);
+                CmdLineExeCfg.copyFrom(cmdExeCfgUrl);
                 CmdLineExe2.copyFrom(cmdExe2Url);
             } catch (IOException | InterruptedException e) {
                 build.setResult(Result.FAILURE);
@@ -878,7 +905,7 @@ public class RunFromFileBuilder extends Builder implements SimpleBuildStep {
             listener.error("Failed running HpToolsLauncher " + ioe.getMessage());
         } catch (InterruptedException e) {
             build.setResult(Result.ABORTED);
-            listener.error("Failed running HpToolsLauncher - build aborted " + e.getMessage());
+            listener.error("Failed running HpToolsLauncher - build aborted " + StringUtils.defaultString(e.getMessage()));
             try {
                 AlmToolsUtils.runHpToolsAborterOnBuildEnv(build, launcher, listener, ParamFileName, workspace);
             } catch (IOException e1) {

@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -39,6 +39,7 @@ using Analysis.Api.Dictionaries;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using HpToolsLauncher.Utils;
 
 namespace LRAnalysisLauncher
 {
@@ -476,7 +477,7 @@ namespace LRAnalysisLauncher
         {
             System.Reflection.AssemblyName name = new System.Reflection.AssemblyName(args.Name);
             if (name.Name.ToLowerInvariant().EndsWith(".resources")) return null;
-            string installPath = HpToolsLauncher.Helper.getLRInstallPath();
+            string installPath = HpToolsLauncher.Utils.Helper.getLRInstallPath();
             if (installPath == null)
             {
                 log(Resources.CannotLocateInstallDir);

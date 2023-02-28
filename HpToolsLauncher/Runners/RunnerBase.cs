@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -35,13 +35,13 @@ namespace HpToolsLauncher
         public virtual void Dispose()
         {
         }
-        protected bool _blnRunCancelled = false;
+        protected bool _isRunCancelled = false;
         protected JunitXmlBuilder _xmlBuilder = new JunitXmlBuilder();
 
         public bool RunWasCancelled
         {
-            get { return _blnRunCancelled; }
-            set { _blnRunCancelled = value; }
+            get { return _isRunCancelled; }
+            set { _isRunCancelled = value; }
         }
 
         public JunitXmlBuilder XmlBuilder
@@ -55,5 +55,9 @@ namespace HpToolsLauncher
             throw new NotImplementedException();
         }
 
+        public virtual void SafelyCancel()
+        {
+            _isRunCancelled = true;
+        }
     }
 }

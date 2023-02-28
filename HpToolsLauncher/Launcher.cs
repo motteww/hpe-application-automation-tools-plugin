@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -29,6 +29,7 @@
 using HpToolsLauncher.Properties;
 using HpToolsLauncher.RTS;
 using HpToolsLauncher.TestRunners;
+using HpToolsLauncher.Utils;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -46,6 +47,7 @@ namespace HpToolsLauncher
 
     public class Launcher
     {
+        private IAssetRunner _runner;
         private IXmlBuilder _xmlBuilder;
         private bool _ciRun = false;
         private readonly JavaProperties _ciParams = new JavaProperties();
@@ -126,6 +128,14 @@ namespace HpToolsLauncher
             ConsoleWriter.WriteLine(message);
         }
 
+        public void SafelyCancel()
+        {
+            if (_runner != null)
+            {
+                _runner.SafelyCancel();
+            }
+        }
+
         /// <summary>
         /// analyzes and runs the tests given in the param file.
         /// </summary>
@@ -151,33 +161,33 @@ namespace HpToolsLauncher
 
             //run the entire set of test once
             //create the runner according to type
-            IAssetRunner runner = CreateRunner(true);
+            _runner = CreateRunner(true);
 
             //runner instantiation failed (no tests to run or other problem)
-            if (runner == null)
+            if (_runner == null)
             {
                 ConsoleWriter.WriteLine("empty runner;");
                 Environment.Exit((int)ExitCodeEnum.Failed);
                 return;
             }
 
-            TestSuiteRunResults results = runner.Run();
+            TestSuiteRunResults results = _runner.Run();
 
             string onCheckFailedTests = _ciParams.GetOrDefault("onCheckFailedTest");
             bool rerunTestsOnFailure = !string.IsNullOrEmpty(onCheckFailedTests) && Convert.ToBoolean(onCheckFailedTests.ToLower());
             if (_runType != TestStorageType.MBT)
             {
-                RunSummary(runner, resultsFilename, results);
+                RunSummary(resultsFilename, results);
             }
 
             if (_runType == TestStorageType.FileSystem)
             {
                 //the "On failure" option is selected and the run build contains failed tests
                 // we need to check if there were any failed tests
-                if (rerunTestsOnFailure)
+                bool thereAreFailedTests = _exitCode == ExitCodeEnum.Failed || results.NumFailures > 0;
+                if (rerunTestsOnFailure && thereAreFailedTests)
                 {
-                    if (_exitCode == ExitCodeEnum.Failed || results.NumFailures > 0)
-                        ConsoleWriter.WriteLine("There are failed tests.");
+                    ConsoleWriter.WriteLine("There are failed tests.");
 
                     string fsTestType = _ciParams.GetOrDefault("testType");
 
@@ -201,21 +211,21 @@ namespace HpToolsLauncher
                     }
 
                     // save the initial XmlBuilder because it contains testcases already created, in order to speed up the report building
-                    JunitXmlBuilder initialXmlBuilder = ((RunnerBase)runner).XmlBuilder;
+                    JunitXmlBuilder initialXmlBuilder = ((RunnerBase)_runner).XmlBuilder;
                     //create the runner according to type
-                    runner = CreateRunner(false, reruntests);
+                    _runner = CreateRunner(false, reruntests);
 
                     //runner instantiation failed (no tests to run or other problem)
-                    if (runner == null)
+                    if (_runner == null)
                     {
                         Environment.Exit((int)ExitCodeEnum.Failed);
                         return;
                     }
 
-                    ((RunnerBase)runner).XmlBuilder = initialXmlBuilder; // reuse the populated initialXmlBuilder because it contains testcases already created, in order to speed up the report building
-                    TestSuiteRunResults rerunResults = runner.Run();
+                    ((RunnerBase)_runner).XmlBuilder = initialXmlBuilder; // reuse the populated initialXmlBuilder because it contains testcases already created, in order to speed up the report building
+                    TestSuiteRunResults rerunResults = _runner.Run();
 
-                    RunSummary(runner, resultsFilename, results, rerunResults);
+                    RunSummary(resultsFilename, results, rerunResults);
                 }
             }
             Environment.Exit((int)_exitCode);
@@ -300,13 +310,13 @@ namespace HpToolsLauncher
 
                     bool isSSOEnabled = _ciParams.ContainsKey("SSOEnabled") ? Convert.ToBoolean(_ciParams["SSOEnabled"]) : false;
                     string clientID = _ciParams.GetOrDefault("almClientID");
-                    string apiKey = _ciParams.ContainsKey("almApiKeySecret") ? EncryptionUtils.Decrypt(_ciParams["almApiKeySecret"]) : string.Empty;
+                    string apiKey = _ciParams.ContainsKey("almApiKeySecret") ? Encrypter.Decrypt(_ciParams["almApiKeySecret"]) : string.Empty;
                     string almRunHost = _ciParams.GetOrDefault("almRunHost");
 
                     //create an Alm runner
                     runner = new AlmTestSetsRunner(_ciParams["almServerUrl"],
                                      _ciParams["almUsername"],
-                                     EncryptionUtils.Decrypt(_ciParams["almPassword"]),
+                                     Encrypter.Decrypt(_ciParams["almPassword"]),
                                      _ciParams["almDomain"],
                                      _ciParams["almProject"],
                                      dblQcTimeout,
@@ -481,137 +491,19 @@ namespace HpToolsLauncher
                     }
 
                     //--MC connection info
-                    McConnectionInfo mcConnectionInfo = new McConnectionInfo();
-                    if (_ciParams.ContainsKey("MobileHostAddress"))
+                    McConnectionInfo mcConnectionInfo = null;
+                    try
                     {
-                        string mcServerUrl = _ciParams["MobileHostAddress"];
-
-                        if (!string.IsNullOrEmpty(mcServerUrl))
-                        {
-                            //url is something like http://xxx.xxx.xxx.xxx:8080
-                            string[] strArray = mcServerUrl.Split(new char[] { ':' });
-                            if (strArray.Length == 3)
-                            {
-                                mcConnectionInfo.MobileHostAddress = strArray[1].Replace("/", string.Empty);
-                                mcConnectionInfo.MobileHostPort = strArray[2];
-                            }
-
-                            //mc username
-                            if (_ciParams.ContainsKey("MobileUserName"))
-                            {
-                                string mcUsername = _ciParams["MobileUserName"];
-                                if (!string.IsNullOrEmpty(mcUsername))
-                                {
-                                    mcConnectionInfo.MobileUserName = mcUsername;
-                                }
-                            }
-
-                            //mc password
-                            if (_ciParams.ContainsKey("MobilePassword"))
-                            {
-                                string mcPassword = _ciParams["MobilePassword"];
-                                if (!string.IsNullOrEmpty(mcPassword))
-                                {
-                                    mcConnectionInfo.MobilePassword = EncryptionUtils.Decrypt(mcPassword);
-                                }
-                            }
-
-                            //mc tenantId
-                            if (_ciParams.ContainsKey("MobileTenantId"))
-                            {
-                                string mcTenantId = _ciParams["MobileTenantId"];
-                                if (!string.IsNullOrEmpty(mcTenantId))
-                                {
-                                    mcConnectionInfo.MobileTenantId = mcTenantId;
-                                }
-                            }
-                          
-                            //mc exec token	
-                            if (_ciParams.ContainsKey("MobileExecToken"))	
-                            {	
-                                var mcExecToken = _ciParams["MobileExecToken"];	
-                                if (!string.IsNullOrEmpty(mcExecToken))	
-                                {	
-                                    try	
-                                    {	
-                                        mcConnectionInfo.MobileExecToken = EncryptionUtils.Decrypt(mcExecToken);	
-                                    }	
-                                    catch (ArgumentException e)	
-                                    {	
-                                        ConsoleWriter.WriteErrLine(e.Message);	
-                                        Environment.Exit((int)ExitCodeEnum.Failed);	
-                                    }	
-                                }	
-                            }
-
-                            //ssl
-                            if (_ciParams.ContainsKey("MobileUseSSL"))
-                            {
-                                string mcUseSSL = _ciParams["MobileUseSSL"];
-                                if (!string.IsNullOrEmpty(mcUseSSL))
-                                {
-                                    mcConnectionInfo.MobileUseSSL = int.Parse(mcUseSSL);
-                                }
-                            }
-
-                            //Proxy enabled flag
-                            if (_ciParams.ContainsKey("MobileUseProxy"))
-                            {
-                                string useProxy = _ciParams["MobileUseProxy"];
-                                if (!string.IsNullOrEmpty(useProxy))
-                                {
-                                    mcConnectionInfo.MobileUseProxy = int.Parse(useProxy);
-                                }
-                            }
-
-                            //Proxy type
-                            if (_ciParams.ContainsKey("MobileProxyType"))
-                            {
-                                string proxyType = _ciParams["MobileProxyType"];
-                                if (!string.IsNullOrEmpty(proxyType))
-                                {
-                                    mcConnectionInfo.MobileProxyType = int.Parse(proxyType);
-                                }
-                            }
-
-                            //proxy address
-                            string proxyAddress = _ciParams.GetOrDefault("MobileProxySetting_Address");
-                            CheckAndSetMobileProxySettings(ref mcConnectionInfo, proxyAddress);
-
-                            //Proxy authentication
-                            if (_ciParams.ContainsKey("MobileProxySetting_Authentication"))
-                            {
-                                string proxyAuthentication = _ciParams["MobileProxySetting_Authentication"];
-                                if (!string.IsNullOrEmpty(proxyAuthentication))
-                                {
-                                    mcConnectionInfo.MobileProxySetting_Authentication = int.Parse(proxyAuthentication);
-                                }
-                            }
-
-                            //Proxy username
-                            if (_ciParams.ContainsKey("MobileProxySetting_UserName"))
-                            {
-                                string proxyUsername = _ciParams["MobileProxySetting_UserName"];
-                                if (!string.IsNullOrEmpty(proxyUsername))
-                                {
-                                    mcConnectionInfo.MobileProxySetting_UserName = proxyUsername;
-                                }
-                            }
-
-                            //Proxy password
-                            if (_ciParams.ContainsKey("MobileProxySetting_Password"))
-                            {
-                                string proxyPassword = _ciParams["MobileProxySetting_Password"];
-                                if (!string.IsNullOrEmpty(proxyPassword))
-                                {
-                                    mcConnectionInfo.MobileProxySetting_Password = EncryptionUtils.Decrypt(proxyPassword);
-                                }
-                            }
-                        }
+                        mcConnectionInfo = new McConnectionInfo(_ciParams);
+                    }
+                    catch (Exception ex)
+                    {
+                        ConsoleWriter.WriteErrLine(ex.Message);
+                        Environment.Exit((int)ExitCodeEnum.Failed);
                     }
 
-                    // other mobile info
-                    string mobileinfo = string.Empty;
+                        // other mobile info
+                        string mobileinfo = string.Empty;
                     if (_ciParams.ContainsKey("mobileinfo"))
                     {
                         mobileinfo = _ciParams["mobileinfo"];
@@ -663,17 +555,35 @@ namespace HpToolsLauncher
                         }
                     }
 
+                    RunAsUser uftRunAsUser = null;
+                    string username = _ciParams.GetOrDefault("uftRunAsUserName");
+                    if (!string.IsNullOrEmpty(username))
+                    {
+                        string encryptedAndEncodedPwd = _ciParams.GetOrDefault("uftRunAsUserEncodedPassword");
+                        string encryptedPwd = _ciParams.GetOrDefault("uftRunAsUserPassword");
+                        if (!string.IsNullOrEmpty(encryptedAndEncodedPwd))
+                        {
+                            string encodedPwd = Encrypter.Decrypt(encryptedAndEncodedPwd);
+                            uftRunAsUser = new RunAsUser(username, encodedPwd);
+                        }
+                        else if (!string.IsNullOrEmpty(encryptedPwd))
+                        {
+                            string plainTextPwd = Encrypter.Decrypt(encryptedPwd);
+                            uftRunAsUser = new RunAsUser(username, plainTextPwd.ToSecureString());
+                        }
+                    }
+
                     SummaryDataLogger summaryDataLogger = GetSummaryDataLogger();
                     List<ScriptRTSModel> scriptRTSSet = GetScriptRtsSet();
                     string resultsFilename = _ciParams["resultsFilename"];
-                    string uftRunMode = _ciParams.GetOrDefault("fsUftRunMode", null);
+                    string uftRunMode = _ciParams.GetOrDefault("fsUftRunMode", "Fast");
                     if (validTests.Count > 0)
                     {
-                        runner = new FileSystemTestsRunner(validTests, GetValidParams(), printInputParams, timeout, uftRunMode, pollingInterval, perScenarioTimeOutMinutes, ignoreErrorStrings, jenkinsEnvVars, mcConnectionInfo, mobileinfo, parallelRunnerEnvironments, displayController, analysisTemplate, summaryDataLogger, scriptRTSSet, reportPath, resultsFilename, _encoding);
+                        runner = new FileSystemTestsRunner(validTests, GetValidParams(), printInputParams, timeout, uftRunMode, pollingInterval, perScenarioTimeOutMinutes, ignoreErrorStrings, jenkinsEnvVars, mcConnectionInfo, mobileinfo, parallelRunnerEnvironments, displayController, analysisTemplate, summaryDataLogger, scriptRTSSet, reportPath, resultsFilename, _encoding, uftRunAsUser);
                     }
                     else if (cleanupAndRerunTests.Count > 0)
                     {
-                        runner = new FileSystemTestsRunner(cleanupAndRerunTests, printInputParams, timeout, uftRunMode, pollingInterval, perScenarioTimeOutMinutes, ignoreErrorStrings, jenkinsEnvVars, mcConnectionInfo, mobileinfo, parallelRunnerEnvironments, displayController, analysisTemplate, summaryDataLogger, scriptRTSSet, reportPath, resultsFilename, _encoding);
+                        runner = new FileSystemTestsRunner(cleanupAndRerunTests, printInputParams, timeout, uftRunMode, pollingInterval, perScenarioTimeOutMinutes, ignoreErrorStrings, jenkinsEnvVars, mcConnectionInfo, mobileinfo, parallelRunnerEnvironments, displayController, analysisTemplate, summaryDataLogger, scriptRTSSet, reportPath, resultsFilename, _encoding, uftRunAsUser);
                     }
                     else
                     {
@@ -714,20 +624,6 @@ namespace HpToolsLauncher
                     break;
             }
             return runner;
-        }
-
-        private void CheckAndSetMobileProxySettings(ref McConnectionInfo mcConnectionInfo, string proxyAddress)
-        {
-            if (!string.IsNullOrEmpty(proxyAddress))
-            {
-                // data is something like "16.105.9.23:8080"
-                string[] strArrayForProxyAddress = proxyAddress.Split(new char[] { ':' });
-                if (strArrayForProxyAddress.Length == 2)
-                {
-                    mcConnectionInfo.MobileProxySetting_Address = strArrayForProxyAddress[0];
-                    mcConnectionInfo.MobileProxySetting_Port = int.Parse(strArrayForProxyAddress[1]);
-                }
-            }
         }
 
         private List<string> GetParamsWithPrefix(string prefix, bool skipEmptyEntries = false)
@@ -772,10 +668,9 @@ namespace HpToolsLauncher
         /// <summary>
         /// used by the run fuction to run the tests
         /// </summary>
-        /// <param name="runner"></param>
         /// <param name="resultsFile"></param>
         ///
-        private void RunSummary(IAssetRunner runner, string resultsFile, TestSuiteRunResults results, TestSuiteRunResults rerunResults = null)
+        private void RunSummary(string resultsFile, TestSuiteRunResults results, TestSuiteRunResults rerunResults = null)
         {
             try
             {
@@ -863,7 +758,7 @@ namespace HpToolsLauncher
                 ConsoleWriter.WriteLine(string.Format(Resources.LauncherDisplayStatistics, runStatus, allTestRuns.Count, successes, failures, errors, warnings));
 
                 int testIndex = 1;
-                if (!runner.RunWasCancelled)
+                if (!_runner.RunWasCancelled)
                 {
                     allTestRuns.ForEach(tr => { ConsoleWriter.WriteLine(((tr.HasWarnings) ? "Warning".PadLeft(7) : tr.TestState.ToString().PadRight(7)) + ": " + tr.TestPath + "[" + testIndex + "]"); testIndex++; });
 
@@ -880,7 +775,7 @@ namespace HpToolsLauncher
             {
                 try
                 {
-                    runner.Dispose();
+                    _runner.Dispose();
                 }
                 catch (Exception ex)
                 {
@@ -1072,7 +967,7 @@ namespace HpToolsLauncher
                     }
                     else if (type == PASSWORD && !string.IsNullOrWhiteSpace(val))
                     {
-                        val = EncryptionUtils.Decrypt(val);
+                        val = Encrypter.Decrypt(val);
                     }
 
                     parameters.Add(new TestParameter(i, name, val, type.ToLower()));

@@ -7,7 +7,7 @@
  * __________________________________________________________________
  * MIT License
  *
- * (c) Copyright 2012-2021 Micro Focus or one of its affiliates.
+ * (c) Copyright 2012-2023 Micro Focus or one of its affiliates.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -41,7 +41,7 @@ using System.Xml.Linq;
 using System.Xml.XPath;
 using System.Xml.Xsl;
 
-namespace HpToolsLauncher
+namespace HpToolsLauncher.Utils
 {
     public enum TestType
     {
@@ -173,14 +173,9 @@ namespace HpToolsLauncher
                 {
                     return ans;
                 }
-
             }
-
-
             return null;
-
         }
-
 
         public static string GetRootDirectoryPath()
         {
@@ -228,7 +223,7 @@ namespace HpToolsLauncher
         }
 
         public static string GetTestPathWithoutParams(string test)
-		{
+        {
             int quotationMarkIndex = test.IndexOf(" \"", StringComparison.Ordinal);
             return quotationMarkIndex == -1 ? test : test.Substring(0, quotationMarkIndex).Trim();
         }
@@ -312,10 +307,11 @@ namespace HpToolsLauncher
         {
             long _unused;
             if (!string.IsNullOrEmpty(param) && long.TryParse(param, out _unused))
-			{
+            {
                 return true;
-			} else
-			{
+            }
+            else
+            {
                 // must be at least 2 characters wide, containing at least 2 double quotes
                 if (param.Length < 2) return false;
 
@@ -339,10 +335,11 @@ namespace HpToolsLauncher
                 bool isNumeric = !string.IsNullOrEmpty(param) && long.TryParse(param, out n);
 
                 if (isNumeric)
-				{
+                {
                     return n.ToString();
-				} else
-				{
+                }
+                else
+                {
                     if (param.Length >= 2)
                     {
                         return param.Substring(1, param.Length - 2);
@@ -458,7 +455,7 @@ namespace HpToolsLauncher
 
         public static string GetSTInstallPath()
         {
-            string ret = String.Empty;
+            string ret = string.Empty;
             var regKey = Registry.LocalMachine.OpenSubKey(ServiceTesCurrentVersionRegistryKey);
             if (regKey != null)
             {
@@ -485,7 +482,7 @@ namespace HpToolsLauncher
                 }
             }
 
-            if (!String.IsNullOrEmpty(ret))
+            if (!string.IsNullOrEmpty(ret))
             {
                 ret = ret.EndsWith("\\") ? ret : (ret + "\\");
                 if (ret.EndsWith("\\bin\\"))
@@ -521,7 +518,6 @@ namespace HpToolsLauncher
             {
                 //try 64-bit
                 regkey = Registry.LocalMachine.OpenSubKey(LoadRunner64RegisryKey);
-
             }
 
             if (regkey != null)
@@ -531,7 +527,6 @@ namespace HpToolsLauncher
                 regkey = regkey.OpenSubKey(LoadRunnerControllerDirRegistryKey);
                 if (regkey != null)
                     return regkey.GetValue("Controller").ToString();
-
             }
 
             return installPath;
@@ -717,11 +712,13 @@ namespace HpToolsLauncher
             return uftFolder + @"bin\" + parallelRunnerExecutable;
         }
 
+        /// <summary>
+        /// Why we need this? If we run jenkins in a master slave node where there is a jenkins service installed in the slave machine, we need to change the DCOM settings as follow:
+        /// dcomcnfg.exe -> My Computer -> DCOM Config -> QuickTest Professional Automation -> Identity -> and select The Interactive User
+        /// </summary>
         public static void ChangeDCOMSettingToInteractiveUser()
         {
-            string errorMsg = "Unable to change DCOM settings. To chage it manually: " +
-                  "run dcomcnfg.exe -> My Computer -> DCOM Config -> QuickTest Professional Automation -> Identity -> and select The Interactive User";
-
+            string errorMsg = "Unable to change DCOM settings. To chage it manually: run dcomcnfg.exe -> My Computer -> DCOM Config -> QuickTest Professional Automation -> Identity -> and select The Interactive User.";
             string interactiveUser = "Interactive User";
             string runAs = "RunAs";
 
@@ -838,7 +835,7 @@ namespace HpToolsLauncher
 
         public static string GetUftViewerInstallPath()
         {
-            string ret = String.Empty;
+            string ret = string.Empty;
             var regKey = Registry.LocalMachine.OpenSubKey(UftViewerInstalltionFolderRegistryKey) ??
                          Registry.LocalMachine.OpenSubKey(UftViewerInstalltionFolderRegistryKey64Bit);
 
@@ -851,7 +848,7 @@ namespace HpToolsLauncher
                 }
             }
 
-            if (!String.IsNullOrEmpty(ret))
+            if (!string.IsNullOrEmpty(ret))
             {
                 ret = ret.EndsWith("\\") ? ret : (ret + "\\");
             }
@@ -1262,12 +1259,10 @@ namespace HpToolsLauncher
     {
         private readonly int _milliSeconds;
 
-
         public Stopper(int milliSeconds)
         {
             this._milliSeconds = milliSeconds;
         }
-
 
         /// <summary>
         /// Creates timer in seconds to replace thread.sleep due to ui freezes in jenkins. 
