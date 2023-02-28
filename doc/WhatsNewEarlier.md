@@ -61,7 +61,7 @@ Version 7.4 introduced the following enhancements:
 **UFT One**
 
 - Enhanced data security in UFT One’s Jenkins tasks.  A public-private key pair is used to encrypt and decrypt sensitive data on each execution node. 
--	Access Key authentication support for UFT Mobile (supported from UFT One 2021 R1 Patch1)
+-	Access Key authentication support for UFT Digital Lab (supported from UFT One 2021 R1 Patch1)
 -	Support for the Java 11 JAXB dependency.
 -	Ability to specify the UFT Report timestamp format, by defining a date format on the Jenkins configuration page. (Manage Jenkins > Configure System, Run Result (UFT Report) timestamp format string section).
 -	Console Output text encoding configuration on the job level.
@@ -173,7 +173,7 @@ Version 6.9 introduced the following enhancements:
 
 **Workarounds**
 
-- For running UFTM tests from UFT One: If UFTM tests fail in UFT One after changing the UFTM server version in the Jenkins configuration, manually restart UFT One and run the test again.
+- For running UFTD tests from UFT One: If UFTD tests fail in UFT One after changing the UFTD server version in the Jenkins configuration, manually restart UFT One and run the test again.
 
 ## What&#39;s New in versions 6.7 and 6.8
 
@@ -296,9 +296,9 @@ Version 5.9 introduced the following enhancements:
 
 - Bug fixes
 
-**UFT Mobile (Mobile Center)**
+**UFT Digital Lab (UFT Mobile)**
 
-- Rebrand from &quot;Mobile Center&quot; to &quot;UFT Mobile&quot;
+- Rebrand from &quot;UFT Mobile&quot; to &quot;UFT Digital Lab&quot;
 
 **ALM**
 
@@ -314,6 +314,6 @@ https://issues.jenkins-ci.org/browse/JENKINS-58134
 
 - Bug fixes
 
-Note: This version of the plugin does not work with UFT Mobile 3.3 and UFT 14.03.
+Note: This version of the plugin does not work with UFT Digital Lab 3.3 and UFT 14.03.
 
 

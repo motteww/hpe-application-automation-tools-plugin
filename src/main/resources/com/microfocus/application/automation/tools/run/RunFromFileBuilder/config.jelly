@@ -259,7 +259,7 @@
 						 </div>
 					 </div>
 				 </div>
-				 <f:entry title="UFT Mobile Server" field="mcServerName">
+				 <f:entry title="UFT Digital Lab Server" field="mcServerName">
 					 <select name="runfromfs.mcServerName">
 						 <j:forEach var="mcServer" items="${descriptor.mcServers}">
 							 <f:option selected="${mcServer.mcServerName==instance.mCServerSettingsModel.mcServerName}" value="${mcServer.mcServerName}">
@@ -344,13 +344,13 @@
 					 <f:readOnlyTextbox name="runfromfs.fsJobId" value="${instance.runFromFileModel.fsJobId}"/>
 				 </f:entry>
 				 <f:entry>
-					 <f:checkbox title="Recreate UFT Mobile job if this job is copied from another job" name="runfromfs.recreateJob" checked="false"/>
+					 <f:checkbox title="Recreate UFT Digital Lab job if this job is copied from another job" name="runfromfs.recreateJob" checked="false"/>
 				 </f:entry>
 				 <f:entry>
 					 <input id="wizard" type="button" value="wizard" onClick="loadMobileInfo(a)"/>
 				 </f:entry>
 				 <f:entry>
-					 <div id="errorMessage" style="color:red;display:none">UFT Mobile login information or proxy is incorrect.</div>
+					 <div id="errorMessage" style="color:red;display:none">UFT Digital Lab login information or proxy is incorrect.</div>
 				 </f:entry>
 			 </div>
 			 <div class="tr config-table-top-row">

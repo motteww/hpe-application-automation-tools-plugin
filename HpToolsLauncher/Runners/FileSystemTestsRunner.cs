@@ -127,7 +127,7 @@ namespace HpToolsLauncher
             _encoding = encoding;
             _uftRunMode = uftRunMode;
 
-            ConsoleWriter.WriteLine("UFT Mobile connection info is - " + _mcConnection.ToString());
+            ConsoleWriter.WriteLine("UFT Digital Lab connection info is - " + _mcConnection.ToString());
 
             if (reportPath != null)
             {
